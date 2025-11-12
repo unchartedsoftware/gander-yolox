@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 def make_parser():
     parser = argparse.ArgumentParser("yolox onnx-deploy")
     parser.add_argument("-n", "--name", type=str, required=True, help="model name")
-    parser.add_argument("-c", "--config", type=str, default=None, help="config file path")
+    parser.add_argument(
+        "-c", "--config", type=str, default=None, help="config file path"
+    )
     parser.add_argument(
         "--onnx-name", type=str, required=True, help="name of onnx output file"
     )
@@ -36,13 +38,16 @@ def make_parser():
     )
     parser.add_argument("--batch-size", type=int, default=1, help="batch size")
     parser.add_argument(
-        "--dynamic", action="store_true", help="whether the input shape should be dynamic or not"
+        "--dynamic",
+        action="store_true",
+        help="whether the input shape should be dynamic or not",
     )
     parser.add_argument("--onnxsim", action="store_false", help="simplify onnx or not")
     parser.add_argument(
-        "--decode-in-inference",
-        action="store_true",
-        help="decode in inference or not"
+        "--decode-in-inference", action="store_true", help="decode in inference or not"
+    )
+    parser.add_argument(
+        "--half", action="store_true", help="export model in half precision (FP16)"
     )
 
     return parser
@@ -56,7 +61,13 @@ def main():
     model.module = replace_module(model.module, nn.SiLU, SiLU)
     model.module.head.decode_in_inference = args.decode_in_inference
 
-    dummy_input = torch.randn(args.batch_size, 3, 640, 640)
+    # Convert to half precision if requested
+    if args.half:
+        model.module.cuda()
+        model.module.half()
+        dummy_input = torch.randn(args.batch_size, 3, 640, 640).cuda().half()
+    else:
+        dummy_input = torch.randn(args.batch_size, 3, 640, 640)
 
     torch.onnx.export(
         model.module,
@@ -64,8 +75,11 @@ def main():
         args.onnx_name,
         input_names=[args.input],
         output_names=[args.output],
-        dynamic_axes={args.input: {0: 'batch'},
-                      args.output: {0: 'batch'}} if args.dynamic else None,
+        dynamic_axes=(
+            {args.input: {0: "batch"}, args.output: {0: "batch"}}
+            if args.dynamic
+            else None
+        ),
         opset_version=args.opset,
     )
     logger.info(f"ONNX model has been successfully created: {args.onnx_name}")
@@ -74,13 +88,16 @@ def main():
         return
 
     logger.info("Simplify ONNX model")
+    print("Simplify ONNX model")
     onnx_model = onnx.load(args.onnx_name)
     model_simp, valid = simplify(onnx_model)
     if not valid:
         logger.error("Simplified ONNX model could not be validated")
         return
     onnx.save(model_simp, args.onnx_name)
-    logger.info(f"Simplified ONNX model has been successfully created: {args.onnx_name}")
+    logger.info(
+        f"Simplified ONNX model has been successfully created: {args.onnx_name}"
+    )
 
 
 if __name__ == "__main__":
