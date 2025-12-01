@@ -1,2 +1,2 @@
 from importlib.metadata import version
-__version__ = version("pixeltable-yolox")
+__version__ = version("gander-yolox")

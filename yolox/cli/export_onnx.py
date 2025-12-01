@@ -3,17 +3,20 @@
 import argparse
 import logging
 from pathlib import Path
+from typing import cast
 
 import torch
 from loguru import logger
 from torch import nn
 
 from yolox.models import Yolox
+from yolox.models.yolox import YoloxModule
 from yolox.config import YoloxConfig
 from yolox.models.network_blocks import SiLU
 from yolox.utils import replace_module
 import onnx
 from onnxsim import simplify
+from onnxruntime.transformers.float16 import convert_float_to_float16
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,11 @@ def make_parser():
     parser.add_argument(
         "--half", action="store_true", help="export model in half precision (FP16)"
     )
+    parser.add_argument(
+        "--keep-io",
+        action="store_true",
+        help="keep input/output tensors as FP32 when using --half (applies keep_io_types flag)",
+    )
 
     return parser
 
@@ -58,16 +66,11 @@ def main():
 
     model = Yolox.from_pretrained(args.name, args.config)
     model.module.eval()
-    model.module = replace_module(model.module, nn.SiLU, SiLU)
+    model.module = cast(YoloxModule, replace_module(model.module, nn.SiLU, SiLU))
     model.module.head.decode_in_inference = args.decode_in_inference
 
-    # Convert to half precision if requested
-    if args.half:
-        model.module.cuda()
-        model.module.half()
-        dummy_input = torch.randn(args.batch_size, 3, 640, 640).cuda().half()
-    else:
-        dummy_input = torch.randn(args.batch_size, 3, 640, 640)
+    # Always export to FP32 first
+    dummy_input = torch.randn(args.batch_size, 3, 640, 640)
 
     torch.onnx.export(
         model.module,
@@ -84,20 +87,29 @@ def main():
     )
     logger.info(f"ONNX model has been successfully created: {args.onnx_name}")
 
-    if not args.onnxsim:
-        return
+    # Convert to FP16 if requested using ONNX float16 conversion
+    if args.half:
+        logger.info("Converting ONNX model to FP16")
+        onnx_model = onnx.load(args.onnx_name)
+        onnx_model_fp16 = convert_float_to_float16(
+            onnx_model,
+            keep_io_types=args.keep_io,
+        )
+        onnx.save(onnx_model_fp16, args.onnx_name)
+        logger.info(f"FP16 ONNX model has been successfully created: {args.onnx_name}")
 
-    logger.info("Simplify ONNX model")
-    print("Simplify ONNX model")
-    onnx_model = onnx.load(args.onnx_name)
-    model_simp, valid = simplify(onnx_model)
-    if not valid:
-        logger.error("Simplified ONNX model could not be validated")
-        return
-    onnx.save(model_simp, args.onnx_name)
-    logger.info(
-        f"Simplified ONNX model has been successfully created: {args.onnx_name}"
-    )
+    # Simplify as final step
+    if args.onnxsim:
+        logger.info("Simplify ONNX model")
+        onnx_model = onnx.load(args.onnx_name)
+        model_simp, valid = simplify(onnx_model)
+        if not valid:
+            logger.error("Simplified ONNX model could not be validated")
+            return
+        onnx.save(model_simp, args.onnx_name)
+        logger.info(
+            f"Simplified ONNX model has been successfully created: {args.onnx_name}"
+        )
 
 
 if __name__ == "__main__":
