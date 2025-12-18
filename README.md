@@ -3,9 +3,16 @@
      alt="YoloX" width="350"></div>
 <br>
 
-`pixeltable-yolox` is a lightweight, Apache-licensed object detection library built on pytorch. It is a fork of the
+`pixeltable-yolox` is a lightweight, Apache-licensed object detection library built on pytorch. This repository is
+based on [pixeltable/pixeltable-yolox](https://github.com/pixeltable/pixeltable-yolox), which is itself a fork of the
 [MegVii YOLOX package](https://github.com/Megvii-BaseDetection/YOLOX) originally authored by Zheng Ge et al,
 modernized for recent versions of Python and refactored to be more easily usable as a Python library.
+
+### About this fork
+
+This repository is a fork of Pixeltable's YOLOX fork.
+The only changes made here are aimed at updating model export (e.g., ONNX/TorchScript) to support additional
+parameters and export targets.
 
 `pixeltable-yolox` is still a work in progress! Some features of YoloX have not been ported yet.
 
