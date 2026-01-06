@@ -3,7 +3,6 @@
 import argparse
 import inspect
 import logging
-from pathlib import Path
 from typing import cast
 
 import torch
@@ -12,7 +11,6 @@ from torch import nn
 
 from yolox.models import Yolox
 from yolox.models.yolox import YoloxModule
-from yolox.config import YoloxConfig
 from yolox.models.network_blocks import SiLU
 from yolox.utils import replace_module
 import onnx
@@ -26,9 +24,6 @@ MIN_DYNAMO_OPSET = 18
 def make_parser():
     parser = argparse.ArgumentParser("yolox onnx-deploy")
     parser.add_argument("-n", "--name", type=str, required=True, help="model name")
-    parser.add_argument(
-        "-c", "--config", type=str, default=None, help="config file path"
-    )
     parser.add_argument(
         "--onnx-name", type=str, required=True, help="name of onnx output file"
     )
@@ -71,13 +66,15 @@ def make_parser():
 def main():
     args = make_parser().parse_args()
 
-    model = Yolox.from_pretrained(args.name, args.config)
+    model = Yolox.from_pretrained(args.name)
     model.module.eval()
     model.module = cast(YoloxModule, replace_module(model.module, nn.SiLU, SiLU))
     model.module.head.decode_in_inference = args.decode_in_inference
 
     # Always export to FP32 first
-    dummy_input = torch.randn(args.batch_size, 3, 640, 640)
+    test_size = getattr(model.processor.config, "test_size", (640, 640))
+    height, width = int(test_size[0]), int(test_size[1])
+    dummy_input = torch.randn(args.batch_size, 3, height, width)
     export_args = (dummy_input,)
 
     supports_dynamo = "dynamo" in inspect.signature(torch.onnx.export).parameters
